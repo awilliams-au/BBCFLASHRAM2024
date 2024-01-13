@@ -1,0 +1,175 @@
+>LIST
+   10REM Source file of *CLEARAM <id>
+   20REM for use with Alan Williams's sideways rom ram boards
+   30REM (C) Alan Williams 1986
+   40REM Code expects to be run in the I/O processor
+   50REM as a filing system utility.
+   60REM This code clears the desired ram bank and unplugs the rom.
+   70REM It does not clear any extended vectors which may point into the ram
+   80REM It is FATAL to clear a RAM to which extended vectors are pointing.
+  100S%=&110  :REM Maximum binary size
+  110T%=&09F0 :REM Assembled for here (this one is a bit long)
+  120DIM M%S% :REM Stored here
+  130FORA%=M%TOM%+S%-1:?A%=0:NEXT
+  150REM save location
+  160I$="<out$dir>"
+  170REM IF R%>15 THEN R%=&C:REM Lowest of the 2 (or 4) RAM pages. All post SHS instalations.
+  180R%=8:REM where the RAM banks are on RAM+FLASH board
+  200REM M%=&09C0 :REM Place where this code goes.
+  210REM IF R%>15 THEN R%=&C
+  220FOR Opt%=4 TO 7 STEP 3
+  230P%=T%
+  240O%=M%
+  260[:OPT Opt%
+  270\Get address of file name (rest of command line)
+  280        LDX#&A8 \ Points to 4 zero page locations for OSARGS
+  290        LDY#0   \ Force A to be reason code.
+  300        LDA#1   \ Get address of rest of command line
+  310        JSR&FFDA\ OSARGS
+  330        LDA #0   \ Code to cater for the fact that NFS3.34 does
+  340        LDY #0   \ not give the address of the rest of command  line.
+  350        JSR &FFDA\ It gives address of start of the command line.
+  360        CMP #5   \ Check for NET filing system.
+  370        BNE NotNet
+  380        LDA #2   \ Check net version
+  390        LDY #0
+  400        JSR &FFDA
+  410        CMP #1     \ NFS 3.34 returns 2
+  420        BEQ NotNet \ Well it is actualy but not the problem version.
+  440        LDY #7     \ Incriment the pointer so that it points to the byte
+  450        BNE Cont   \ after the command ie *CLEARAM 2
+  460                   \                              ^
+  470                   \ This ends the NFS 3.34 patch.
+  490.NotNet LDY #0     \ Other systems don't need the above correction.
+  510\Extract the id
+  520.Cont   JSR Strip \ Remove spaces after command name and before bank #
+  530        JSR GetNum
+  540        LDA &AD
+  560\To keep the OS happy we have to unplug the rom we are about to clear
+  570\this is to avoid having the OS offer a clear ram service calls etc.
+  580\Note that extended vectors could still point in here.  This will cause
+  590\the computer to sulk.
+  610.UnPlug LDA #170
+  620        LDY #&FF \ Find where the ROM id table is in this computer
+  630        LDX #0   \
+  640        JSR &FFF4\ OSWORD
+  660        STX &AE  \ Low byte of address
+  670        STY &AF  \ High byte of address
+  690        LDA &AD  \ Recover rom socket number.
+  700        AND #&0F \ Strip write prot bits off
+  710        TAY      \
+  730        LDA #0   \ Hide ram bank.
+  740        STA (&AE),Y \ Poke the ram bank out of the OS's view.
+  750                    \ Go and clear the ram
+  780\ Now set the rom latch to allow us to write to socket ?&AD
+  790.Clear  LDA &F4 \ This has to be stacked and replaced as the OS may
+  800        PHA     \ offer unrecognised interupts or NMI may change the
+  810                \ current rom.
+  840        LDA &AD
+  850        STA &F4   \ The rom we will be working on.
+  860        STA &FE30
+  880\ Now clear the sideways ram
+  890        \ &AA,&AB -> pointer to RAM
+  900        \ &AC     -> page counter
+  920        LDA#0:STA&AA:\Clear counter (low bytes)
+  930        LDA#&80:STA&AB:\ Set high byte.
+  950        LDX #&40: \ Number of 256 byte pages to clear
+  960.Loop1  LDY #0
+  970        LDA #0
+  980.Loop2  STA (&AA),Y  :\
+  990        CMP (&AA),Y  :\Verify proper write
+ 1000        BNE Fault    :\Write fault
+ 1010        INY
+ 1020        BNE Loop2
+ 1030        INC &AB \ Move up to next page
+ 1040        DEX \ Decriment page counter
+ 1050        BNE Loop1
+ 1070\Now reenstate the original page rom number.
+ 1090        PLA       \ Recover original
+ 1100        STA &F4   \ OS copy of page rom reg
+ 1110        STA &FE30
+ 1120        STA &FE31 \ write to page rom latch
+ 1130        RTS\ exit
+ 1150.Fault  PLA
+ 1160        STA &F4
+ 1170        STA &FE30
+ 1190        BRK
+ 1200        EQUB 221
+ 1210        EQUS "RAM fault"
+ 1220        BRK
+ 1240\Code strips spaces and leves pointer (&A8)+Y at first non space.
+ 1250.Strip  LDA (&A8),Y
+ 1260        CMP#32
+ 1270        BNE Out
+ 1280        INY
+ 1290        BNE Strip
+ 1300.Out    CMP # 13  \ If we found a CR then parameters are missing
+ 1310        BEQ Error
+ 1320        RTS
+ 1340\ Evaluate the number
+ 1350\ Can except any form of bank id. eg numbers 0..15 or hex 0..F or
+ 1360\ RAM id W,X,Y and Z
+ 1370\ Result returned in &AD
+ 1380.GetNum  LDA(&A8),Y:CMP#ASC("&"):BNE(P%+3):INY
+ 1390         LDA (&A8),Y      \ Check for A to F or W to Z
+ 1400         AND #&DF         \ Translate a to A etc.
+ 1410         SBC #ASC("W")
+ 1420         BMI NotRAM
+ 1430         ADC #3  \ Make W  the first RAM bank.
+ 1440         AND #3  \ Mask unwanted bits
+ 1450         ADC #R%
+ 1460         STA &AD
+ 1470         RTS
+ 1490\ REM process hex numbers A to F
+ 1500.NotRAM  TAX \ IF id is A to F  then X is &EA to &EF
+ 1510         SBC #&E9
+ 1520         BMI While_1 \ Not a number A to F
+ 1530         TXA
+ 1540         AND #&F
+ 1550         STA &AD
+ 1560         RTS
+ 1580\ Process a hex number 0..9 or a decimal 0..15
+ 1590.While_1 LDA (&A8),Y       \ Space through to the last digit.
+ 1600         CMP #32
+ 1610         BEQ EndWhile_1
+ 1620         CMP #13
+ 1630         BEQ EndWhile_1
+ 1640         INY
+ 1650         BNE While_1
+ 1660         BEQ Error    \ More than 255 spaces
+ 1680.EndWhile_1 DEY
+ 1690         LDA (&A8),Y
+ 1700         AND #&F
+ 1710         STA &AD    \ Least sig. byte of result done
+ 1720         CMP #10
+ 1730         BPL Error
+ 1740         DEY
+ 1750         BMI End
+ 1760         LDA (&A8),Y \ Get ascii of MSB
+ 1770         CMP #32
+ 1780         BEQ End
+ 1790         CMP #ASC("8")
+ 1800         BEQ PriRAM
+ 1810         LDA &AD
+ 1820         CLC
+ 1830         ADC #10
+ 1840         AND #&F
+ 1850         STA &AD
+ 1860.End     RTS
+ 1880.PriRAM  LDA #&80
+ 1890         STA &AD
+ 1900         RTS
+ 1920.Error  BRK
+ 1930        EQUB 220
+ 1940        EQUS"Syntax: *CLEARAM <id>"
+ 1950        BRK
+ 1970\EQUS" Alan Williams sideways ROM/RAM board support"
+ 1980\EQUB13
+ 1990\EQUS"(C) 1986"
+ 2010]
+ 2020NEXT
+ 2050IF P%>(M%+S%) PRINT"Code bigger than ";~S%:STOP
+ 2070OSCLI "SAVE "+I$+"CLEARAM "+STR$~(M%)+" "+STR$~(O%)+" "+STR$~(&FFFF0000+T%)+" "+STR$~(&FFFF0000+T%)
+ 2090END
+>*SPOOL
+

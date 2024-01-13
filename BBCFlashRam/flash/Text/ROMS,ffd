@@ -1,0 +1,148 @@
+>LIST
+   10REM > ROMS
+   20REM Source file of *ROMS
+   30REM for use with Alan Williams's 1985 sideways rom ram boards
+   40REM and now the 2014 FLASH/RAM board
+   50REM (C) Alan Williams 1986, 2015
+   60REM Code expects to be run in the I/O processor
+   70REM as a filing system utility.
+   80REM This code will list the roms that the mos can see.
+   90REM it also indicates their socket and service/language content
+   91REM and type, ROM, RAM, and FLASH
+  120REM &9C0..&9FF speach buffer?   AUG 280
+  130REM &A00..&AFF cassette output buffer &9C0..&AFF could be safe.
+  150REM It would be nice to support both my hardware schemes
+  160REM Flash and Old but presently just the new scheme is suported
+  161REM as there are no old boards in use.
+  171REM save location
+  172I$="<out$dir>"
+  260T%=&9C0:REM where the code loads
+  270DIM M%2048: REM Where the code goes now.
+  280R%=12:REM where the RAM banks are ON ROM/RAM
+  290R%=8: REM and on FLASH/RAM
+  320FOR Opt%=4 TO 7 STEP3
+  330P%=T%
+  340O%=M%
+  350[:OPTOpt%
+  360        LDA #170 \
+  370        LDY #&FF \ Find where the ROM id table is in this computer
+  380        LDX #0   \
+  390        JSR &FFF4\ OSWORD
+  410        STX &A8  \ Low byte of address
+  420        STY &A9  \ High byte of address
+  440\Now cycle through the rom numbers 0 to 15 in Y
+  450\Now we do it the other way 15..0
+  460        LDY #15
+  470.Loop1  LDA (&A8),Y
+  480        BNE Display
+  490        JMP Bypass
+  510.Display LDA #32     \ Print out  a space.
+  520         JSR &FFE3   \
+  540        TYA         \ Print out rom socket number
+  550        JSR Onum    \ in decimal.
+  560        LDA#32      \ Print 1 space
+  570        JSR&FFE3    \
+  590        CPY #12     \ 12..15 are MB ROMS
+  600        BMI NotR    \ Not ROM
+  610        LDA # ASC("R"):JSR&FFE3
+  620        LDA # ASC("O"):JSR&FFE3
+  630        LDA # ASC("M"):JSR&FFE3
+  640        LDA # ASC(" "):JSR&FFE3:JSR&FFE3
+  650        JMP Ltr
+  670.NotR   CPY #8     \8,.11 are SW RAM
+  680        BMI NotS
+  690        LDA # ASC("R"):JSR&FFE3
+  700        LDA # ASC("A"):JSR&FFE3
+  710        LDA # ASC("M"):JSR&FFE3
+  720        LDA # ASC(" "):JSR&FFE3:JSR&FFE3
+  730        JMP Ltr
+  750.NotS   LDA # ASC("F"):JSR&FFE3
+  760        LDA # ASC("L"):JSR&FFE3
+  770        LDA # ASC("A"):JSR&FFE3
+  780        LDA # ASC("S"):JSR&FFE3
+  790        LDA # ASC("H"):JSR&FFE3
+  820.Ltr    LDA # ASC(" "):JSR&FFE3
+  840        CPY #R%
+  850        BNE NotW
+  860        LDA # ASC("W"):JSR&FFE3:BNE Contin
+  870.NotW   CPY #R%+1
+  880        BNE NotX
+  890        LDA # ASC("X"):JSR&FFE3:BNE Contin
+  900.NotX   CPY #R%+2
+  910        BNE NotY
+  920        LDA # ASC("Y"):JSR&FFE3:BNE Contin
+  930.NotY   CPY #R%+3
+  940        BNE NotZ
+  950        LDA # ASC("Z"):JSR&FFE3:BNE Contin
+  960.NotZ   LDA #32:JSR&FFE3
+  990.Contin LDA #32:JSR&FFE3 \ Print out ' ('
+ 1000        LDA#40:JSR&FFE3
+ 1020        LDA (&A8),Y
+ 1030        AND #&40     \ Check for language entry
+ 1040        BEQ NoLang
+ 1050        LDA # ASC("L") \ print (L
+ 1060        JSR &FFE3
+ 1070        BNE Name
+ 1090.NoLang LDA (&A8),Y
+ 1100        AND #&80    \ Check for a service entry
+ 1110        BEQ NoServ
+ 1120        LDA # ASC("S") \ print (S
+ 1130        JSR &FFE3
+ 1140        BNE Name
+ 1160.NoServ LDA #32        \ print (
+ 1170        JSR &FFE3
+ 1190.Name   LDA #41        \ print )
+ 1200        JSR &FFE3
+ 1210        LDA #32:JSR&FFE3:JSR&FFE3
+ 1230        LDX #0       \ print out rom name
+ 1240        LDA #9:STA&F6:LDA#&80:STA&F7
+ 1260.Loop2  TYA
+ 1270        PHA
+ 1280        JSR &FFB9    \ Read byte from rom
+ 1290        STA &AD      \ Save it for a moment
+ 1300        PLA
+ 1310        TAY
+ 1320        INC &F6      \ Incriment ready to get next byte
+ 1330        LDA &AD      \ Recover byte
+ 1340        CMP #10      \ Filter out CR & LF as they mess up the display.
+ 1350        BEQ NoCRLF
+ 1360        CMP #13
+ 1370        BEQ NoCRLF
+ 1380        JSR&FFE3     \ Write to scrn
+ 1390.NoCRLF CMP #0
+ 1400        BNE Loop2    \ Until a zero byte is reached
+ 1410        LDA #13      \ Print CR/LF
+ 1420        JSR &FFE3
+ 1440.Bypass DEY          \ Next rom
+ 1450        \CPY# &00
+ 1460        BMI TheEnd   \ Until ROM number=&10
+ 1470        JMP Loop1
+ 1480.TheEnd RTS          \ Exit.
+ 1500\ Decimal output of one nibble 0 to 15
+ 1510\ Destroys the the A and S registors. X Y un touched.
+ 1520.Onum   CMP #9
+ 1530        BEQ P%+4
+ 1540        BCS BIG    \ PRINT "1" FIRST
+ 1560        PHA        \ PRINT 1 SPACE THEN ONE DIGIT
+ 1570        LDA #32
+ 1580        JSR &FFEE
+ 1590        PLA
+ 1600        CLC
+ 1610.LSD    ADC #48
+ 1620        JSR &FFEE
+ 1640        RTS       \ EXIT
+ 1660.BIG    PHA           \  PRINT A LEADING "1"
+ 1670        LDA #ASC("1") \
+ 1680        JSR &FFEE     \
+ 1690        PLA           \
+ 1710        SEC
+ 1720        SBC #10
+ 1740        CLC
+ 1750        BCC LSD       \ PRINT LEAST SIG DIGIT
+ 1780]
+ 1790NEXT
+ 1820IF P%>&AFF PRINT"Code to big to fit between ";~T%;" and &AFF":STOP
+ 1840OSCLI "SAVE "+I$+"ROMS "+STR$~(M%)+" "+STR$~(O%)+" "+STR$~(&FFFF0000+T%)+" "+STR$~(&FFFF0000+T%)
+ 1860END
+>*SPOOL
+

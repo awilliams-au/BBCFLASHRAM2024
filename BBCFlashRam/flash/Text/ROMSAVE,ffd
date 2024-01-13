@@ -1,0 +1,181 @@
+>LIST
+   10REM Source file of *ROMSAVE  <id> <FILENAME>
+   20REM for use with Alan Williams's sideways rom ram boards
+   30REM (C) Alan Williams 1986
+   40REM Code expects to be run in the I/O processor
+   50REM as a filing system utility.
+   60REM This code is used to save roms from the machine to the current
+   70REM filing system.  It will destroy I/O processor RAM from &3000 up.
+   90S%=&130 :REM Maximum binary size
+  100T%=&09C0:REM where the code loads
+  110B%=&3C00:REM where the ROM is down loaded before being saved
+  120DIM M%S% :REM Stored here
+  130FORA%=M%TOM%+S%-1:?A%=0:NEXT
+  141REM save location
+  142I$="<out$dir>"
+  230REM IF R%>15 THEN R%=&C
+  240R%=8:REM where the RAM banks are on RAM+FLASH board
+  241FOR Opt%=4 TO 7 STEP 3
+  242P%=T%
+  243O%=M%
+  280[:OPT Opt%
+  290\Get address of file name (rest of command line)
+  300        LDX#&B9 \ Points to 4 zero page locations for OSARGS
+  310        LDY#0   \ Force A to be reason code.
+  320        LDA#1   \ Get address of rest of command line
+  330        JSR&FFDA\ OSARGS
+  350        LDA #0   \ Code to cater for the fact that NFS3.34 does
+  360        TAY      \ not give the address of the rest of command  line.
+  370        JSR &FFDA\ It gives address of start of the command line.
+  380        CMP #5   \ Check for NET filing system.
+  390        BNE NotNet
+  400        LDA #2   \ Check net version
+  410        LDY #0
+  420        JSR &FFDA
+  430        CMP #1     \ NFS 3.34 returns 2
+  440        BEQ NotNet \ Well it is actualy but not the problem version.
+  460        LDY #7     \ Incriment the pointer so that it points to the byte
+  470        BNE Cont   \ after the command ie *ROMSAVE 2 DNFS
+  480                   \                              ^
+  490                   \ This ends the NFS 3.34 patch.
+  510.NotNet LDY #0     \ Other systems don't need the above correction.
+  520\Extract the bank number 1 or 2 these translate into sockets 9 and &B
+  530.Cont    JSR Strip \ Remove spaces after command name and before bank #
+  540         JSR GetNum \ extract the bank number 1..15
+  550         STY &AE
+  570   \     LDA #170
+  580   \     LDY #&FF \ Find where the ROM id table is in this computer
+  590     \   LDX #0   \
+  600      \  JSR &FFF4\ OSWORD
+  620       \ STX &AF  \ Low byte of address
+  630       \ STY &B8  \ High byte of address
+  660\ Now set the rom latch to allow us to write to socket ?&AD
+  670        LDA &F4 \ This has to be stacked and replaced as the OS may
+  680        PHA     \ offer unrecognised interupts or NMI may change the
+  690                \ current rom.
+  700                \
+  710        LDA &AD
+  720        TAY
+  730        STA &F4   \ The rom we will be working on.
+  740        STA &FE30 \ Write into page rom select registor
+  760\ Now relocate the ROM down into user ram
+  770        \ &A8,&A9 -> pointer to dest area
+  780        \ &AA,&AB -> pointer to source area
+  790        \ &AC     -> page counter
+  810        LDA#0:STA&A8:STA&AA:\Clear counters (low bytes)
+  820        LDA#&80:STA&AB:LDA#(B% DIV 256):STA&A9:\ Set high bytes.
+  840.OkLen  LDX #&40: \ Number of 256 byte pages to move
+  850.Loop1  LDY #0
+  860.Loop2  LDA (&AA),Y  :\ Relocate a byte
+  870        STA (&A8),Y  :\
+  880        INY
+  890        BNE Loop2
+  900        INC &A9 \ Move up to next page
+  910        INC &AB \ Same here
+  920        DEX \ Decriment page counter
+  930        BNE Loop1
+  950        LDY &AE \ Recover string pointer.
+  960        INY:INY
+  970        JSR Strip \
+  990\ Now ask OSFILE to save the rom for us.
+ 1000        LDA&B9    \ Get low byte of adrs of file name
+ 1010        CLC       \ Add the dispacement from the base address
+ 1020        STY&AE    \ returned by OSARGS to form an address for
+ 1030        ADC&AE    \ the OSFILE control block.
+ 1040        STA LoByt \ Put it into control block
+ 1050        BCC NoCary
+ 1060        INC &BA   \ Include carry.
+ 1070.NoCary LDA&BA    \ Get high byte
+ 1080        STA HiByt \ same.
+ 1100        LDA#&0
+ 1110        LDX# (LoByt MOD 256) \ Low byt of control blk adrs.
+ 1120        LDY# (LoByt DIV 256) \ High byte.
+ 1130        JSR&FFDD\ OSFILE
+ 1150\Now reenstate the original page rom number.
+ 1170        PLA       \ Recover original
+ 1180        STA &F4   \ OS copy of page rom reg
+ 1190        STA &FE30 \ write to page rom latch
+ 1200        RTS\ exit
+ 1220\Code strips spaces and leves pointer (&A8)+Y at first non space.
+ 1230.Strip  LDA (&B9),Y
+ 1240        CMP#32
+ 1250        BNE Out
+ 1260        INY
+ 1270        BNE Strip
+ 1280.Out    CMP # 13  \ If we found a CR then parameters are missing
+ 1290        BEQ Error
+ 1300        RTS
+ 1320\ Evaluate the number
+ 1330\ Can except any form of bank id. eg numbers 0..15 or hex 0..F or
+ 1340\ RAM id W,X,Y and Z
+ 1350\ Result returned in &AD
+ 1360.GetNum  LDA (&B9),Y:CMP#ASC("&"):BNE(P%+3):INY
+ 1370         AND #&DF         \ Translate a to A etc.
+ 1380         SBC #ASC("W")
+ 1390         BMI NotRAM
+ 1400         ADC #3  \ Make W  the first RAM bank.
+ 1410         AND #3  \ Mask unwanted bits
+ 1420         ADC #R%
+ 1430         STA &AD
+ 1440         RTS
+ 1460\ REM process hex numbers A to F
+ 1470.NotRAM  TAX \ IF id is A to F  then X is &EA to &EF
+ 1480         SBC #&E9
+ 1490         BMI While_1 \ Not a number A to F
+ 1500         TXA
+ 1510         AND #&F
+ 1520         STA &AD
+ 1530         RTS
+ 1550\ Process a hex number 0..9 or a decimal 0..15
+ 1560.While_1 LDA (&B9),Y       \ Space through to the last digit.
+ 1570         CMP #32
+ 1580         BEQ EndWhile_1
+ 1590         CMP #13
+ 1600         BEQ EndWhile_1
+ 1610         INY
+ 1620         BNE While_1
+ 1630         BEQ Fault    \ More than 255 spaces
+ 1650.EndWhile_1 DEY
+ 1660         LDA (&B9),Y
+ 1670         AND #&F
+ 1680         STA &AD    \ Least sig. byte of result done
+ 1690         CMP #10
+ 1700         BPL Fault
+ 1710         DEY
+ 1720         BMI End
+ 1730         LDA (&B9),Y \ Get ascii of MSB
+ 1740         CMP #32
+ 1750         BEQ End
+ 1760\\         CMP #ASC("8")
+ 1770\\         BEQ PriRAM
+ 1780         LDA &AD
+ 1790         CLC
+ 1800         ADC #10
+ 1810         AND #&F
+ 1820         STA &AD
+ 1830.End     RTS
+ 1850\\.PriRAM  LDA #&80
+ 1860\\         STA &AD
+ 1870\\         RTS
+ 1900\ we have an error in the bank id number.
+ 1910.Fault
+ 1920.Error  BRK     \ Yes so do an error.
+ 1930        EQUB 220
+ 1940        EQUS"Syntax: *ROMSAVE <id> <File name>"
+ 1950        BRK
+ 1970\ The OSFILE control block.
+ 1980.LoByt  EQUB 0 \ Low byte of address of file name
+ 1990.HiByt  EQUB 0 \ High Byte.
+ 2010        EQUD &FFFF8000 \Load address of roms
+ 2020        EQUD &FFFF8000 \Exec address of roms
+ 2040        EQUD (&FFFF0000 OR B%) \ Buffer for ROM
+ 2060        EQUD (&FFFF0000 OR (B%+&4000))  \ End address of data +1
+ 2080      \ END OSFILE control block.
+ 2100EQUS"(C) Alan Williams 1986"
+ 2120]
+ 2130NEXT
+ 2150IF P%>(M%+S%) PRINT"Code bigger than ";~S%:STOP
+ 2170OSCLI "SAVE "+I$+"ROMSAVE "+STR$~(M%)+" "+STR$~(O%)+" "+STR$~(&FFFF0000+T%)+" "+STR$~(&FFFF0000+T%)
+ 2180END
+>*SPOOL
+

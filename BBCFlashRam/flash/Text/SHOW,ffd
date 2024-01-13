@@ -1,0 +1,134 @@
+>LIST
+   10REM Source file of *SHOW
+   20REM for use with Alan Williams's sideways rom ram boards
+   30REM What it has got to do with RAM/ROM boards escapes me.
+   40REM It may be useful so you get it any way.
+   50REM (C) Alan Williams 1986
+   60REM Code expects to be run in the I/O processor
+   70REM as a filing system utility.
+   80REM This code will list the function key definitions.
+  100S%=&100  :REM Maximum binary size
+  110T%=&0A00 :REM Assembled for here
+  120DIM M%S% :REM Stored here
+  130FORA%=M%TOM%+S%-1:?A%=0:NEXT
+  132REM save location
+  133I$="<out$dir>"
+  210KEY%=&AA:X%=&AB:Y%=&AC
+  230FOR Opt%=4 TO 7 STEP 3
+  240P%=T%
+  250O%=M%
+  270[:OPT Opt%
+  280\Now cycle through the rom numbers 0 to 15 in Y
+  290        LDA #0     \ KEY%=0
+  300        STA KEY%   \
+  320.NextK  LDA KEY%   \ Print *KEY number
+  330        JSR Onum   \
+  350        LDA #32    \ PRINT" ";
+  360        JSR &FFE3
+  380        LDY KEY%   \ X%=?(&B00+KEY%)
+  390        LDA &B00,Y \
+  400        STA X%     \
+  420.L60    LDA #0     \ Y%=0
+  430        STA Y%     \
+  450.L70    LDA Y%     \  IF Y%=KEY%
+  460        CMP KEY%   \
+  470        BEQ L90    \  THEN GOTO L90
+  490        LDY Y%      \ IF X%=Y%?&B00
+  500        LDA &B00,Y% \
+  510        CMP X%      \
+  520        BEQ LF      \ THEN GOTO LF
+  540.L90    INC Y%      \ Y%=Y%+1
+  560        LDA Y%      \
+  570        CMP #&11    \ IF Y%<>&12 THEN GOTO L70
+  580        BNE L70     \
+  600        LDX X%      \ C%=X%?&B01
+  610        LDA &B01,X  \
+  620        JSR OutChr  \ SPECIAL VDU C%
+  640        INC X%      \ X%=X%+1
+  660        JMP L60     \ GOTO L60
+  680.LF     LDA #13:JSR&FFE3 \ PRINT\GOTO L140
+  700.L140   INC KEY%    \ NEXT KEY%
+  710        LDA KEY%    \
+  720        CMP #&10    \
+  730        BNE NextK   \
+  750        RTS         \ END
+  770.OutChr STA &A8
+  780        AND #&E0
+  790        BNE NCTRL
+  810\ Print out CTRL code
+  820        LDA #ASC("|")
+  830        JSR &FFE3
+  840        LDA &A8
+  850        ORA #&40
+  860        JSR &FFE3
+  870        RTS
+  890.NCTRL  LDA &A8
+  900        CMP #127
+  910        BNE NDEL
+  920\ Print out |? for ascii 127 delete
+  930        LDA #ASC("|")
+  940        JSR &FFE3
+  950        LDA #ASC("?")
+  960        JSR &FFE3
+  970        RTS
+  980\ Print out '|"' for ascii 34  the quote '"'
+  990.NDEL   CMP #ASC("""")
+ 1000        BNE NQUOTE
+ 1010        LDA #ASC("|")
+ 1020        JSR &FFE3
+ 1030        LDA #ASC("""")
+ 1040        JSR &FFE3
+ 1050        RTS
+ 1060.NQUOTE AND #&80
+ 1070        BEQ NPLING
+ 1080        LDA #ASC("|")
+ 1090        JSR &FFE3
+ 1100        LDA #ASC("!")
+ 1110        JSR &FFE3
+ 1120        LDA &A8
+ 1130        AND #&7F
+ 1140        JMP OutChr
+ 1160.NPLING LDA &A8
+ 1170        JSR &FFE3
+ 1180        RTS
+ 1200\ Decimal output of one nibble 0 to 15
+ 1210\ Destroys the the A and S registors. X Y un touched.
+ 1230.Onum   PHA
+ 1240        LDX#0
+ 1250.kl     LDA key,X
+ 1260        BEQ nu
+ 1270        INX
+ 1280        JSR &FFE3
+ 1290        CLC:BCCkl
+ 1310.nu     PLA
+ 1320        CMP #9
+ 1330        BEQ P%+4
+ 1340        BCS BIG    \ PRINT "1" FIRST
+ 1360        PHA        \ PRINT 1 SPACE THEN ONE DIGIT
+ 1370        LDA #32
+ 1380        JSR &FFEE
+ 1390        PLA
+ 1400        CLC
+ 1410.LSD    ADC #48
+ 1420        JSR &FFEE
+ 1440        RTS       \ EXIT
+ 1460.BIG    PHA           \  PRINT A LEADING "1"
+ 1470        LDA #ASC("1") \
+ 1480        JSR &FFEE     \
+ 1490        PLA           \
+ 1510        SEC
+ 1520        SBC #10
+ 1540        CLC
+ 1550        BCC LSD       \ PRINT LEAST SIG DIGIT
+ 1570.key    EQUS" *KEY":BRK
+ 1590EQUS"Alan Williams"
+ 1600EQUB13
+ 1601EQUS"(C)1986"
+ 1602EQUB13
+ 1660]
+ 1670NEXT
+ 1690IF P%>(M%+S%) PRINT"Code bigger than ";~S%:STOP
+ 1710OSCLI "SAVE "+I$+"SHOW "+STR$~(M%)+" "+STR$~(O%)+" "+STR$~(&FFFF0000+T%)+" "+STR$~(&FFFF0000+T%)
+ 1840END
+>*SPOOL
+

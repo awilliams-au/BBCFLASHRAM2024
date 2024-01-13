@@ -1,0 +1,6 @@
+copy IDEFS::SDcard4.$.FS.flash.Source  IDEFS::SDcard4.$.FS.flash.dfsdisc.S       FV~C
+copy IDEFS::SDcard4.$.FS.flash.Library IDEFS::SDcard4.$.FS.flash.dfsdisc.L       FV~C
+copy IDEFS::SDcard4.$.FS.flash.mkdfs   IDEFS::SDcard4.$.FS.flash.dfsdisc.mkdfs   F~C
+copy IDEFS::SDcard4.$.FS.flash.mkimg   IDEFS::SDcard4.$.FS.flash.dfsdisc.mkimg   F~C
+copy IDEFS::SDcard4.$.FS.flash.Notes   IDEFS::SDcard4.$.FS.flash.dfsdisc.Notes   F~C
+

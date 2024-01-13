@@ -1,0 +1,137 @@
+>LIST
+   10REM Source file of *INSERT <0..15 or 0..F or W,X,Y,Z>
+   20REM for use with Alan Williams's sideways rom ram boards
+   30REM (C) Alan Williams 1986
+   40REM Code expects to be run in the I/O processor
+   50REM as a filing system utility.
+   60REM This code will reactivate a rom that has been *UNPLUGED
+   80S%=&100  :REM Maximum binary size
+   90T%=&0A00 :REM Assembled for here
+  100DIM M%S% :REM Stored here
+  110FORA%=M%TOM%+S%-1:?A%=0:NEXT
+  112REM save location
+  113I$="<out$dir>"
+  190REM IF R%>15 THEN R%=8:REM Lowest of the 2 (or 4) RAM pages.
+  200R%=8:REM where the RAM banks are on RAM+FLASH board
+  220FOR Opt%=4 TO 7 STEP 3
+  230P%=T%
+  240O%=M%
+  260[:OPT Opt%
+  270\Get address of file name (rest of command line)
+  280        LDX#&A8 \ Points to 4 zero page locations for OSARGS
+  290        LDY#0   \ Force A to be reason code.
+  300        LDA#1   \ Get address of rest of command line <bank id>
+  310        JSR&FFDA\ OSARGS
+  330        LDA #0   \ Code to cater for the fact that NFS3.34 does
+  340        LDY #0   \ not give the address of the rest of command  line.
+  350        JSR &FFDA\ It gives address of start of the command line.
+  360        CMP #5   \ Check for NET filing system.
+  370        BNE NotNet
+  380        LDA #2   \ Check net version
+  390        LDY #0
+  400        JSR &FFDA
+  410        CMP #1     \ NFS 3.34 returns 2
+  420        BEQ NotNet \ Well it is actualy but not the problem version.
+  440        LDY #6     \ Incriment the pointer so that it points to the byte
+  450        BNE Cont   \ after the command ie *INSERT 6
+  460                   \                             ^
+  470                   \ This ends the NFS 3.34 patch.
+  490.NotNet LDY #0     \ Other systems don't need the above correction.
+  510\Extract the bank number 0 to 15
+  520.Cont   JSR Strip \ Remove spaces after command name and before bank #
+  540        JSR GetNum \ Get the number of the rom in question.
+  560\ now put this rom back into the MOS rom id table
+  580        LDA #170
+  590        LDY #&FF \ Find where the ROM id table is in this computer
+  600        LDX #0   \
+  610        JSR &FFF4\ OSWORD
+  630        STX &A9  \ Low byte of address
+  640        STY &AA  \ High byte of address
+  660        LDA #&06
+  670        STA &F6
+  680        LDA #&80
+  690        STA &F7
+  710        LDY &AD
+  720        JSR &FFB9   \ OSRDRM\OSRDSCR
+  730        LDY &AD
+  740        STA (&A9),Y \ and stick it into the id table
+  750        RTS
+  770\Code strips spaces and leves pointer (&A8)+Y at first non space.
+  780.Strip  LDA (&A8),Y
+  790        CMP#32
+  800        BNE Out
+  810        INY
+  820        BNE Strip
+  830.Out    CMP # 13  \ If we found a CR then parameters are missing
+  840        BEQ Error
+  850        RTS
+  870\ Evaluate the number
+  880\ Can except any form of bank id. eg numbers 0..15 or hex 0..F or
+  890\ RAM id W,X,Y and Z
+  900\ Result returned in &AD
+  910.GetNum LDA(&A8),Y:CMP#ASC("&"):BNE(P%+3):INY
+  920LDA (&A8),Y      \ Check for A to F or W to Z
+  930         AND #&DF         \ Translate a to A etc.
+  940         SBC #ASC("W")
+  950         BMI NotRAM
+  960         ADC #3  \ Make W  the first RAM bank.
+  970         AND #3  \ Mask unwanted bits
+  980         ADC #R%
+  990         STA &AD
+ 1000         RTS
+ 1020\ REM process hex numbers A to F
+ 1030.NotRAM  TAX \ IF id is A to F  then X is &EA to &EF
+ 1040         SBC #&E9
+ 1050         BMI While_1 \ Not a number A to F
+ 1060         TXA
+ 1070         AND #&F
+ 1080         STA &AD
+ 1090         RTS
+ 1110\ Process a hex number 0..9 or a decimal 0..15
+ 1120.While_1 LDA (&A8),Y       \ Space through to the last digit.
+ 1130         CMP #32
+ 1140         BEQ EndWhile_1
+ 1150         CMP #13
+ 1160         BEQ EndWhile_1
+ 1170         INY
+ 1180         BNE While_1
+ 1190         BEQ Fault    \ More than 255 spaces
+ 1210.EndWhile_1 DEY
+ 1220         LDA (&A8),Y
+ 1230         AND #&F
+ 1240         STA &AD    \ Least sig. byte of result done
+ 1250         CMP #10
+ 1260         BPL Fault
+ 1270         DEY
+ 1280         BMI End
+ 1290         LDA (&A8),Y \ Get ascii of MSB
+ 1300         CMP #32
+ 1310         BEQ End
+ 1320\\         CMP #ASC("8")
+ 1330\\         BEQ PriRAM
+ 1340         LDA &AD
+ 1350         CLC
+ 1360         ADC #10
+ 1370         AND #&F
+ 1380         STA &AD
+ 1390.End     RTS
+ 1410\\.PriRAM  LDA #&80
+ 1420\\         STA &AD
+ 1430\\         RTS
+ 1460\ we have an error in the bank id number.
+ 1470.Error
+ 1480.Fault  BRK
+ 1490        EQUB 220
+ 1500        EQUS"Syntax: *INSERT <Bank id>"
+ 1510        BRK
+ 1530EQUS"Alan Williams sideways ROM/RAM board support"
+ 1540EQUB13
+ 1550EQUS"(C)1986"
+ 1560EQUB13
+ 1580]
+ 1590NEXT
+ 1610IF P%>(M%+S%) PRINT"Code bigger than ";~S%:STOP
+ 1630OSCLI "SAVE "+I$+"INSERT "+STR$~(M%)+" "+STR$~(O%)+" "+STR$~(&FFFF0000+T%)+" "+STR$~(&FFFF0000+T%)
+ 1640END
+>*SPOOL
+

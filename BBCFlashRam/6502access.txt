@@ -1,0 +1,10 @@
+http://nesdev.parodius.com/6502_cpu.txt
+
+Dead memory cycles
+The 6502 uses the memory bus on every cycle without exception. Most of the time this is for useful work and therefore leads to very efficient bus utilization. There are cases, however, when these cycles are wasted cycles, such as:
+•The second cycle of an implied mode instruction. (TXA)
+•The ALU cycle of a read-modify-write instruction. (INC abs)
+•The second-to-last cycle of a zero page indexed read or write. (LDA zp,X)
+•The second-to-last cycle of an absolute or indirect indexed write. (STA abs, X)
+•The second-to-last cycle of an absolute or indirect indexed read that crosses a page boundary (AND abs, Y).
+•Conditional branches that cross a page boundary (BNE).

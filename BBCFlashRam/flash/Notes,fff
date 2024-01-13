@@ -1,0 +1,28 @@
+Notes
+
+Paged memory layout with this board
+DEC HEX SWID   TYPE
+ 15  &F      MB ROM
+ 14  &E      MB ROM
+ 13  &D      MB ROM
+ 12  &C      MB ROM
+ 
+ 11  &B  Z   SW RAM
+ 10  &A  Y   SW RAM
+  9      X   SW RAM
+  8      W   SW RAM
+  
+  7          SW FLASH
+  6          SW FLASH
+  5          SW FLASH
+  4          SW FLASH
+  3          SW FLASH
+  2          SW FLASH
+  1          SW FLASH
+  0          SW FLASH
+  
+  
+  
+Building.
+I build this one a RISC PC using Tube6502Emulator.
+Building on a beeb will require the I$="<out$dir>" to be set to suite yourself.

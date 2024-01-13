@@ -1,0 +1,370 @@
+>LIST
+   10REM > srload
+   20REM Source file of *SRLOAD <FileName> <8000> <ID> <Q> <I>
+   30REM This implimentation is not compelete with respect to the Acorn
+   40REM protocol. The load address is ignored.
+   50REM The 'Q' parameter is ingnored but presumed present. That is
+   60REM we always operate in the equivelent of the Q mode, whole file
+   70REM load at the expense what ever was in memory.
+   80REM The 'I' (insert) flag is handeled.
+   90REM 'Q' should be specified to ensure upward compatibility of any
+  100REM programs writen for this system with B+128 and Master.
+  110REM The ID can be 0..15, 0..F or W,X,Y,Z.  W..Z reference the four
+  120REM RAM banks which may not be at the same ROM number on all implimentations
+  130REM of sidways ram.
+  140REM I belive this is a superset of what some Acorn implimentation accept.
+  150REM I don't think they accept hex.
+  160REM
+  170REM This code is for use with Alan Williams's sideways rom ram boards
+  180REM and flash/ram boards
+  190REM (C) Alan Williams 1986, 2015, 2021
+  200REM This implimentation will corrupt IO processor memory from
+  210REM &3900
+  230REM Code expects to be run in the I/O processor.
+  250REM &A8..&AF (OS commands during execution)
+  260REM
+  270REM A8..AC OSARGS ptr to command line
+  280REM A8 A9 ptr to rom file in ram
+  290REM AA AB ptr to rom id table in MOS (Used after the file is loaded)
+  300REM AD - rom number we are working on
+  310REM AE - insert flag
+  320REM AF is used as the former NMI handler
+  330REM
+  340REM The bank being changed is unlpugged now so less code needs to run with irqs off.
+  360REM Need to add insert handeling
+  380REM srload now runs at &3900, loading the rom image in at &3B00.
+  390REM the flash code pushed the size up so that it would not longer fit
+  400REM at &9C0..&AFF
+  410REM &9C0..&9FF speach buffer?   AUG 280
+  420REM &A00..&AFF cassette output buffer &9C0..&AFF could be safe.
+  440REM save location
+  450I$="<out$dir>"
+  470T%=&3900:REM where the code loads
+  480B%=&3C00:REM where the ROM is loaded before being moved to &8000
+  500DIM M%2048: REM Where the code goes now.  Only expecting 1K of code though.
+  510REM R%=12:REM where the RAM banks are on old bords
+  520R%=8:REM where the RAM banks are on RAM+FLASH board
+  550REM WrtWXon% = &10: REM Bit 4 set
+  560REM Wrtoff%  = &20: REM Bit 5 set
+  570REM WrtYZon% = &40: REM Bit 6 set
+  590FOR Opt%=4 TO 7 STEP 3
+  600P%=T%
+  610O%=M%
+  620[:OPT Opt%
+  630\Get address of file name (rest of command line)
+  640        LDX#&A8 \ Points to 4 zero page locations for OSARGS
+  650        LDY#0   \ Force A to be reason code.
+  660        LDA#1   \ Get address of rest of command line
+  670        JSR&FFDA\ OSARGS
+  690        LDA #0   \ Code to cater for the fact that NFS3.34 does
+  700        STA &AE  \ (clear the insert flag while we have a zero in A.)
+  710        STA &AF  \ (clear the former NMI handler too)
+  720        LDY #0   \ not give the address of the rest of command  line.
+  730        JSR &FFDA\ It gives address of start of the command line.
+  740        CMP #5   \ Check for NET filing system.
+  750        BNE NotNet
+  760        LDA #2   \ Check net version
+  770        LDY #0
+  780        JSR &FFDA
+  790        CMP #1     \ NFS 3.34 returns 2
+  800        BEQ NotNet \ Well it is actualy but not the problem version.
+  820        LDY #6     \ Incriment the pointer so that it points to the byte
+  830        BNE Cont   \ after the command ie *SRLOAD <file> <bank> Q I
+  840                   \                             ^
+  850                   \ This ends the NFS 3.34 patch.
+  870.NotNet LDY #0     \ Other systems don't need the above correction.
+  890\Extract the bank number
+  900.Cont   JSR Strip \ Remove spaces after command name
+  920        CLC       \  Set OSFILE control block to
+  930        TYA       \  point to the filename.
+  940        ADC &A8   \
+  950        STA LoByt \
+  960        PHP       \ Save the status (carry set ?)
+  970        LDA &A9
+  980        STA HiByt
+  990        PLP       \ recover the status
+ 1000        BCC NoC   \ no carry
+ 1010        INC HiByt \
+ 1030.NoC    JSR Jump    \ Skip to the end of the filename
+ 1040        LDA #13
+ 1050        STA (&A8),Y \ Put a CR at the end for OSFILE.
+ 1070        INY   \
+ 1080        JSR Strip   \ strip spaces before 8000
+ 1090        JSR Jump    \ skip through 8000
+ 1100        JSR Strip   \ strip spaces before bank id
+ 1110        JSR GetNum  \ Get the id into &AD
+ 1130        \ y looks like it will be left in the number.
+ 1140        \ so we can start with the inc
+ 1160.optlp  INY
+ 1170        LDA (&A8),Y   \ look for options ('Q' or 'I')
+ 1180  \jsr &FFE3
+ 1190        CMP  #&0D     \ end of line
+ 1200        BEQ opte      \ End option scan.
+ 1210        ora #&20      \ Convert to lower case
+ 1220        CMP #ASC("i") \ only really looking for I/i
+ 1230        BNE optlp
+ 1240        INC &AE       \ Set the insert flag for laster.
+ 1260\pha
+ 1270\lda #ASC("=")
+ 1280\jsr &FFE3
+ 1290\pla
+ 1300\ we don't look for Q as its the default and we are loaded slap bang
+ 1310\ in the middle of application space now anyway.
+ 1330.opte
+ 1350\  probably need to look for and ignore Q and act on I
+ 1370\        ORA #(WrtWXon% OR WrtYZon%)
+ 1380\        STA &AD
+ 1400\ Now ask OSFILE to load the rom for us.
+ 1410        LDA#&FF
+ 1420        LDX# (LoByt MOD 256) \ Low byt of control blk adrs.
+ 1430        LDY# (LoByt DIV 256) \ High byte.
+ 1440        JSR&FFDD\ OSFILE
+ 1450        \\ we don't get back here if the file is not found.
+ 1480\ *unplug the existing rom
+ 1490\ stops the os looking for it under irqs if its in a inconsistent state
+ 1491        jsr getromtab
+ 1501        LDA #0
+ 1510        LDY &AD
+ 1520        STA (&AA),Y
+ 1540\\ later we need to *insert the new one if the I option was given
+ 1560.Move \ decide on RAM or FLASH here.
+ 1570      LDA &AD
+ 1580\      AND #&F:\ &AD holds ROM number and WPROT bits for the old boards.
+ 1590      CMP #R%
+ 1600      BCC flash
+ 1610      JMP sram
+ 1630      \ Erase a bank of flash
+ 1640.flash
+ 1650       \ claim NMI to stop Econet bombing out our FLASH write protocol.
+ 1660       LDA #&8F: \ Issue page rom service request
+ 1670       LDX #&0C: \ Claim FIQ I mean NMI
+ 1680       LDY #&FF
+ 1690       JSR &FFF4: \ OSBYTE
+ 1700       STY &AF:  \ Former NMI handler (To whome we give it back)
+ 1710                 \ if its not 255
+ 1730\\       LDA #ASC("E")
+ 1740\\       JSR &FFE3
+ 1760       SEI
+ 1770       LDA  #1:STA &FE30:LDA #&AA:STA &9555 \ unlock 1
+ 1780       LDA  #0:STA &FE30:LDA #&55:STA &AAAA \ unlock 2
+ 1790       LDA  #1:STA &FE30:LDA #&80:STA &9555 \ Erase cmd
+ 1810       LDA  #1:STA &FE30:LDA #&AA:STA &9555 \ unlock 1
+ 1820       LDA  #0:STA &FE30:LDA #&55:STA &AAAA \ unlock 2
+ 1830       LDA &AD:STA &FE30:LDA #&30:STA &8000 \ WR 30 to bank to erase.
+ 1850       \ start pole for erase completion
+ 1860       \ Erase command starts 80uS after STA &8000
+ 1870       \ That seems like 160 cylces at 2MHz.
+ 1890       LDX #100 \ wait for the erase process to start.
+ 1900.eloop DEX
+ 1910       BNE eloop
+ 1930.epl   \ Erase poll loop (Just wait for 8000 to read as FF
+ 1940       LDA &8000
+ 1950       CMP #&FF
+ 1960       BNE epl
+ 1980       CLI
+ 1990\\       LDA #ASC("Y")
+ 2000\\       JSR &FFE3
+ 2020        \ need turn off econet FIQs too
+ 2040        \ irqs have to stay off through the whole write
+ 2050        \ as the os could call other roms in the same chip
+ 2060        \ during the writes which would be bad
+ 2090        LDA #(B%MOD256):STA&A8 \ B% is the load address for the rom file
+ 2100        LDA #(B%DIV256):STA&A9
+ 2120        LDX #&40
+ 2140.floop1 LDY #0
+ 2150.floop2 SEI
+ 2160        LDA #1:STA &FE30:LDA #&AA:STA &9555
+ 2170        LDA #0:STA &FE30:LDA #&55:STA &AAAA
+ 2180        LDA #1:STA &FE30:LDA #&A0:STA &9555
+ 2190        LDA &AD:STA &FE30
+ 2200        LDA (&A8),Y \\ destroys the in ram image as a side effect
+ 2210.mod    STA &8000 \\ self modified address  OPCODE,LOW,HIGH
+ 2220        AND #&80
+ 2230        STA (&A8),Y
+ 2240.wpoll  LDA &8000 \\ self modified address
+ 2250        AND #&80
+ 2260        CMP (&A8),Y
+ 2270        BNE wpoll
+ 2280        CLI
+ 2300        INC mod+1   \\ modify absolute address for STA low byte
+ 2310        INC wpoll+1 \\ modify absolute address for LDA
+ 2330        INY
+ 2340        BNE floop2
+ 2360        INC &A9
+ 2370        INC mod+2   \\ modify absolue address for STA high byte
+ 2380        INC wpoll+2 \\ modify absolute address for LDA high byte
+ 2400\        LDA #ASC(".")
+ 2410\        JSR &FFE3
+ 2430        DEX
+ 2440        BNE floop1
+ 2450        jmp insert
+ 2480\
+ 2490\ SRAM loader
+ 2500\
+ 2530\ Now set the rom latch to allow us to write to socket ?&AD
+ 2540.sram   LDA &F4 \ This has to be stacked and replaced as the OS may
+ 2550        PHA     \ offer unrecognised interupts or NMI may change the
+ 2560                \ current rom.
+ 2580\ 2022 - this is a different strategy than taken by the flash codpath
+ 2590\ which suppresss all irqs & presumes the os can't change the current rom.
+ 2610        LDA &AD
+ 2620        STA &F4   \ The rom we will be working on.( I don't dp this for the FLASH...)
+ 2630        STA &FE30 \ Write into page rom select registor
+ 2650\ Now relocate the ROM into sideways ram
+ 2660        \ &A8,&A9 -> pointer to source area
+ 2670        \ &AA,&AB -> pointer to dest area
+ 2680        \ &AC     -> page counter
+ 2700        LDA#0:STA&A8:STA&AA:\Clear counters (low bytes)
+ 2710        LDA#&80:STA&AB:LDA#(B% DIV 256):STA&A9:\ Set high bytes.
+ 2720        LDA Len+1:\ Hi byte of rom length
+ 2730        STA&AC
+ 2740        LDA Len:BEQ OkLen :INC &AC:\ if low byte <>0 then hi=hi+1
+ 2750.OkLen  LDX &AC: \ Number of 256 byte pages to move
+ 2760.Loop1  LDY #0
+ 2770.Loop2  LDA (&A8),Y  \ Relocate a byte
+ 2780        STA (&AA),Y  \
+ 2790        CMP (&AA),Y  \Verify proper write
+ 2800        BNE Fault    \Write fault
+ 2810        INY
+ 2820        BNE Loop2
+ 2830        INC &A9 \ Move up to next page
+ 2840        INC &AB \ Same here
+ 2850        DEX \ Decriment page counter
+ 2860        BNE Loop1
+ 2880\Now reenstate the original page rom number.
+ 2900        PLA       \ Recover original
+ 2910        STA &F4   \ OS copy of page rom reg
+ 2930        BRA insert
+ 2940\
+ 2950\ INSERT
+ 2960\ insert the rom int the os rom table if required
+ 2980.insert
+ 2990        LDA &AE \ insert flag
+ 3000 \    pha
+ 3010 \    clc
+ 3020 \    adc #ASC("0")
+ 3030 \    jsr &FFE3
+ 3040 \    pla
+ 3050        CMP #0
+ 3060        BEQ noins   \ not inserting this rom
+ 3070 \lda#ASC("!")
+ 3080 \jsr &FFE3
+ 3081        JSR getromtab
+ 3090        LDA &8006   \ ROM type byte
+ 3100        LDY &AD
+ 3110        STA (&AA),Y \ and stick it into the id table
+ 3130.noins
+ 3140        LDA &F4:STA&FE30
+ 3160        \\ Release the NMI claim.
+ 3170        \\ this is only set by the flash codepath
+ 3190        LDY &AF:   \ Former owner
+ 3200        CPY #&FF
+ 3210        BEQ nonim
+ 3230        LDA #&8F:  \ Issue page rom service request
+ 3240        LDX #&0B:  \ NMI Release
+ 3250        JSR &FFF4: \ OSBYTE
+ 3270.nonim  RTS
+ 3290.Fault  BRK
+ 3300        EQUB 221
+ 3310        EQUS "RAM?"
+ 3320        BRK
+ 3340\The following code is self modifying.
+ 3350\ 2022 FFS WYH? Letting sleeping dogs lie.
+ 3360\ entry at strip will leave pointer at the first non space.
+ 3370\ entry at Jump will leave the pointer at the first space.
+ 3390.Strip  LDA #&D0      \ OPCODE for BNE
+ 3400.Mod    STA ModByt    \ Change the code.
+ 3410        BNE TPROC
+ 3420.Jump   LDA #&F0       \ OPCODE for BEQ
+ 3430        BNE Mod
+ 3450.TPROC  LDA (&A8),Y
+ 3460        CMP#13:BEQ Error\ check for end of line
+ 3470        CMP#32
+ 3480.ModByt BNE Out \ This line changes to BEQ Out for Jump.
+ 3490        INY
+ 3500        BNE TPROC
+ 3510.Out    CMP # 13  \ If we found a CR then parameters are missing
+ 3520        BEQ Error
+ 3530        RTS
+ 3550\ Evaluate the number
+ 3560\ Can except any form of bank id. eg numbers 0..15 or hex 0..F or
+ 3570\ RAM id W,X,Y and Z
+ 3580\ Result returned in &AD
+ 3590.GetNum  LDA (&A8),Y:
+ 3600         CMP#ASC("&"):BNE(P%+3):INY
+ 3610         LDA (&A8),Y      \ Check for A to F or W to Z
+ 3620         AND #&DF         \ Translate a to A etc.
+ 3630         SBC #ASC("W")
+ 3640         BMI NotRAM
+ 3650         ADC #3  \ Make W  the first RAM bank.
+ 3660         AND #3  \ Mask unwanted bits
+ 3670         ADC #R%
+ 3680         STA &AD
+ 3690         RTS
+ 3710\ REM process hex numbers A to F
+ 3720.NotRAM  TAX \ IF id is A to F  then X is &EA to &EF
+ 3730         SBC #&E9
+ 3740         BMI While_1 \ Not a number A to F
+ 3750         TXA
+ 3760         AND #&F
+ 3770         STA &AD
+ 3780         RTS
+ 3800\ Process a hex number 0..9 or a decimal 0..15
+ 3810.While_1 LDA (&A8),Y       \ Space through to the last digit.
+ 3820         CMP #32
+ 3830         BEQ EndWhile_1
+ 3840         CMP #13
+ 3850         BEQ EndWhile_1
+ 3860         INY
+ 3870         BNE While_1
+ 3890.EndWhile_1 DEY
+ 3900         LDA (&A8),Y
+ 3910         AND #&F
+ 3920         STA &AD    \ Least sig. byte of result done
+ 3930         CMP #10
+ 3940         BPL Fault
+ 3950         DEY
+ 3960         BMI End
+ 3970         LDA (&A8),Y \ Get ascii of MSB
+ 3980         CMP #32
+ 3990         BEQ End
+ 4000         CMP #ASC("8")
+ 4010         BEQ PriRAM
+ 4020         LDA &AD
+ 4030         CLC
+ 4040         ADC #10
+ 4050         AND #&F
+ 4060         STA &AD
+ 4070.End     LDA &AD
+ 4080         RTS
+ 4100.PriRAM  LDA #&80
+ 4110         STA &AD
+ 4120         RTS
+ 4140.Error  BRK
+ 4150        EQUB 220
+ 4160        EQUS"Syntax: *SRLOAD File 8000 <0..11/B|W..Z> Q I"
+ 4170        BRK
+ 4200        \ get the address of the systme rom table into AA,AB
+ 4220.getromtab
+ 4221        LDA #170
+ 4230        LDY #&FF \ Find where the ROM id table is in this computer
+ 4240        LDX #0   \
+ 4250        JSR &FFF4\ OSBYTE
+ 4270        STX &AA  \ Low byte of address reuse of the osags return buffer
+ 4280        STY &AB  \ High byte of address
+ 4290        RTS
+ 4330\ The OSFILE control block.
+ 4340.LoByt  EQUB 0 \ Low byte of address of file name
+ 4350.HiByt  EQUB 0 \ High Byte.
+ 4370        EQUW B%\ Buffer for ROM
+ 4380        EQUW &FFFF \ Force load into I/O processor. where the code is
+ 4400        EQUD 0 \ Execution adrs 0 to force load at B%
+ 4420.Len    EQUD 0
+ 4440.Acc    EQUD 0
+ 4460]
+ 4470NEXT
+ 4490IF P%>B% PRINT"Code to big to fit before &";~B%:STOP
+ 4510OSCLI "SAVE "+I$+"SRLOAD "+STR$~(M%)+" "+STR$~(O%)+" "+STR$~(&FFFF0000+T%)+" "+STR$~(&FFFF0000+T%)
+ 4520END
+>*SPOOL
+

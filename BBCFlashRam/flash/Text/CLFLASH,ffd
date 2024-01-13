@@ -1,0 +1,258 @@
+>LIST
+   10REM Source file of *CLFLASH <id>[id..]
+   20REM for use with Alan Williams's sideways SRAM & FLASH boards
+   30REM Alan Williams 2022
+   40REM
+   50REM Code expects to be run in the I/O processor
+   60REM as a filing system utility.
+   70REM This code erases the desired flash bank and unplugs the rom.
+   80REM It does not clear any extended vectors which may point into the rom
+   90REM It is FATAL to clear a ROM to which extended vectors are pointing.
+  110REM Likewise erasing the language you ran the comand from will result in a poor
+  120REM user experience.  (there is code to trap this but its not working)
+  160S%=&140  :REM Maximum binary size
+  170T%=&09C0 :REM Assembled for here
+  180DIM M%S% :REM Stored here
+  190PRINT"MAX "~ T%+S%
+  200FORA%=M%TOM%+S%-1:?A%=0:NEXT
+  220REM save location
+  230I$="<out$dir>"
+  250R%=8:REM where the RAM banks are on RAM+FLASH board
+  270REM M%=&09C0 :REM Place where this code goes.
+  280REM IF R%>15 THEN R%=&C
+  290FOR Opt%=4 TO 7 STEP 3
+  300P%=T%
+  310O%=M%
+  330[:OPT Opt%
+  350\ get the rom table address into &AE,AF
+  360        LDA #170
+  370        LDY #&FF \ Find where the ROM id table is in this computer
+  380        LDX #0   \
+  390        JSR &FFF4\ OSWORD
+  410        STX &AE  \ Low byte of address
+  420        STY &AF  \ High byte of address
+  440\Get address of file name (rest of command line)
+  450        LDX#&A8 \ Points to 4 zero page locations for OSARGS
+  460        LDY#0   \ Force A to be reason code.
+  470        LDA#1   \ Get address of rest of command line
+  480        JSR&FFDA\ OSARGS
+  500        LDA #0   \ Code to cater for the fact that NFS3.34 does
+  510        LDY #0   \ not give the address of the rest of command  line.
+  520        JSR &FFDA\ It gives address of start of the command line.
+  530        CMP #5   \ Check for NET filing system.
+  540        BNE NotNet
+  550        LDA #2   \ Check net version
+  560        LDY #0
+  570        JSR &FFDA
+  580        CMP #1     \ NFS 3.34 returns 2
+  590        BEQ NotNet \ Well it is actualy but not the problem version.
+  610        LDY #8    \ Incriment the pointer so that it points to the byte
+  620        BNE Cont   \ after the command ie *CLFLASH 2
+  630                   \                                 ^
+  640                   \ This ends the NFS 3.34 patch.
+  660.NotNet LDY #0     \ Other systems don't need the above correction.
+  670\ Y is the offset into the args.  need to keep that safe
+  690\jsr prstr
+  700\Extract the id
+  710        LDA (&A8),Y
+  720        CMP #13
+  730        BNE Cont
+  740        jmp Error
+  760.loop   LDY &AB    \ recover Y
+  780.Next   INY
+  790.Cont
+  800        LDA (&A8),Y
+  810\        JSR &FFE3
+  830        CMP #32   \ space so move along
+  840        BEQ Next
+  860        CMP #13   \ return so done
+  870        BEQ exit
+  890        \lda #0
+  900        \sta &AD
+  910 \\jsr prstr
+  920        JSR GetNum
+  930        STY &AB  \ save Y
+  940LDA &AD
+  950        CMP &F4
+  960        bne no
+  980\jsr printhex
+  990        CMP #R%
+ 1000        BCS Fault
+ 1010        JSR EraseSector
+ 1020        JMP loop
+ 1050\Now reenstate the original page rom number.
+ 1070.exit   LDA &F4   \ OS copy of page rom reg
+ 1080        STA &FE30
+ 1090        RTS
+ 1110.no     LDA &F4
+ 1120        STA &FE30
+ 1130        BRK
+ 1140        EQUB 221
+ 1150        EQUS "No!"
+ 1160        BRK
+ 1180.Fault  LDA &F4
+ 1190        STA &FE30
+ 1200        BRK
+ 1210        EQUB 221
+ 1220        EQUS "id is 0..7"
+ 1230        BRK
+ 1250\.echip
+ 1260\        lda #ASC("E")
+ 1270\        jsr &FFE3
+ 1280\        RTS
+ 1300\To keep the OS happy we have to unplug the rom we are about to clear
+ 1310\this is to avoid having the OS offer a clear ram service calls etc.
+ 1320\Note that extended vectors could still point in here.  This will cause
+ 1330\the computer to sulk.
+ 1360 .EraseSector
+ 1380         LDY &AD  \ Recover rom socket number.
+ 1390         LDA #0   \ Hide rom bank.
+ 1400         STA (&AE),Y \ Poke the rom bank out of the OS's view.
+ 1420\ Now set the rom latch to allow us to write to socket ?&AD
+ 1430.Clear  LDA &AD
+ 1440        STA &FE30
+ 1460       SEI
+ 1470       LDA  #1:STA &FE30:LDA #&AA:STA &9555 \ unlock 1
+ 1480       LDA  #0:STA &FE30:LDA #&55:STA &AAAA \ unlock 2
+ 1490       LDA  #1:STA &FE30:LDA #&80:STA &9555 \ Erase cmd
+ 1510       LDA  #1:STA &FE30:LDA #&AA:STA &9555 \ unlock 1
+ 1520       LDA  #0:STA &FE30:LDA #&55:STA &AAAA \ unlock 2
+ 1540       LDA &AD:STA &FE30:LDA #&30:STA &8000 \ WR 30 to bank to erase.
+ 1560\ potentiall we could scan the args for multiple block numbers here
+ 1580       \ start pole for erase completion
+ 1590       \ Erase command starts 80uS after STA &8000
+ 1600       \ That seems like 160 cylces at 2MHz.
+ 1620       LDX #100 \ wait for the erase process to start.
+ 1630.eloop DEX
+ 1640       BNE eloop
+ 1660.epl   \ Erase poll loop (Just wait for 8000 to read as FF
+ 1670       LDA &8000
+ 1680       CMP #&FF
+ 1690       BNE epl
+ 1710       CLI
+ 1720       RTS
+ 1740\\Code strips spaces and leves pointer (&A8)+Y at first non space.
+ 1750\.Strip  LDA (&A8),Y
+ 1760\        CMP#32
+ 1770\        BNE Out
+ 1780\        INY
+ 1790\        BNE Strip
+ 1800\.Out    CMP # 13  \ If we found a CR then parameters are missing
+ 1810\        BEQ Error
+ 1820\        RTS
+ 1830\
+ 1840\ Evaluate the number 0..9 a..F but not 10..15
+ 1850\ Result returned in A and &AD
+ 1860.GetNum  LDA (&A8),Y
+ 1870         CMP #ASC("&"):
+ 1880         BNE (P%+3):INY
+ 1890         LDA (&A8),Y      \ Check for A to F or W to Z
+ 1900         TAX
+ 1910\         INY
+ 1920         AND #&DF         \ Translate a to A etc.
+ 1930         SBC #ASC("W")
+ 1940         BMI NotRAM
+ 1950         JMP Fault \ not dealing with w..z here need the code space
+ 1960\         ADC #3  \ Make W  the first RAM bank.
+ 1970\         AND #3  \ Mask unwanted bits
+ 1980\         ADC #R%
+ 1990\         STA &AD
+ 2000\         RTS
+ 2020\ REM process hex numbers A to F
+ 2030.NotRAM  TXA \ IF id is A to F  then X is &EA to &EF
+ 2040         SBC #&E9
+ 2050         BMI NotA2F \ Not a number A to F
+ 2060         TXA
+ 2070 .Was09  AND #&F
+ 2080         STA &AD
+ 2090         RTS
+ 2110.NotA2F \ so its 0..9 &30..&39 only doing single digits here
+ 2120         TXA
+ 2130 \jsr printhex
+ 2140         SBC #&2F
+ 2150         BMI Error
+ 2160         TXA
+ 2170         CMP #&3A
+ 2180         BCS Error
+ 2190         BCC Was09
+ 2210\.prstr  TYA:\PHA
+ 2220\.psl    LDA (&A8),Y
+ 2230\        INY
+ 2240\        JSR &FFE3
+ 2250\        CMP #13
+ 2260\        BNE psl
+ 2270\        PHA
+ 2280\        TAY
+ 2290\        RTS
+ 2300\
+ 2310\.printhex
+ 2320\     pha
+ 2330\     lsr A
+ 2340\     lsr A
+ 2350\     lsr A
+ 2360\     lsr A
+ 2370\     jsr hbo
+ 2380\     pla
+ 2390\     and #&0F
+ 2400\.hbo cmp #10
+ 2410\     bcc hbd
+ 2420\     adc #&66
+ 2430\.hbd eor #&30
+ 2440\     jmp &FFEE \ OSWRCH
+ 2470\\ Process a hex number 0..9 or a decimal 0..15
+ 2480\.While_1 LDA (&A8),Y       \ Space through to the last digit.
+ 2490\         CMP #32
+ 2500\         BEQ EndWhile_1
+ 2510\         CMP #13
+ 2520\         BEQ EndWhile_1
+ 2530\         INY
+ 2540\         BNE While_1
+ 2550\         BEQ Error    \ More than 255 spaces
+ 2560\
+ 2570\.EndWhile_1 DEY
+ 2580\         LDA (&A8),Y
+ 2590\         AND #&F
+ 2600\         STA &AD    \ Least sig. byte of result done
+ 2610\         CMP #10
+ 2620\         BPL Error
+ 2630\         DEY
+ 2640\         BMI End
+ 2650\         LDA (&A8),Y \ Get ascii of MSB
+ 2660\         CMP #32
+ 2670\         BEQ End
+ 2680\         CMP #ASC("8")
+ 2690\         BEQ PriRAM
+ 2700\         LDA &AD
+ 2710\         CLC
+ 2720\         ADC #10
+ 2730\         AND #&F
+ 2740\         STA &AD
+ 2750\.End     RTS
+ 2760\
+ 2770\.PriRAM  LDA #&80
+ 2780\         STA &AD
+ 2790\         RTS
+ 2800\
+ 2810.Error  BRK
+ 2820        EQUB 220
+ 2830        EQUS"*CLFLASH <id>.."
+ 2840        BRK
+ 2850\.Error1  BRK
+ 2860\        EQUB 220
+ 2870\        EQUS"Er1"
+ 2880\        BRK
+ 2890\.Error2  BRK
+ 2900\        EQUB 220
+ 2910\        EQUS"Er2"
+ 2920\        BRK
+ 2940\EQUS" Alan Williams sideways ROM/RAM board support"
+ 2950\EQUB13
+ 2960\EQUS"2020"
+ 2980]
+ 2990NEXT
+ 3000REM \        EQUS"Syntax: *CLFLASH <id>.."
+ 3020IF P%>(M%+S%) PRINT"Code bigger than ";~S%:STOP
+ 3040OSCLI "SAVE "+I$+"CLFLASH "+STR$~(M%)+" "+STR$~(O%)+" "+STR$~(&FFFF0000+T%)+" "+STR$~(&FFFF0000+T%)
+ 3060END
+>*SPOOL
+

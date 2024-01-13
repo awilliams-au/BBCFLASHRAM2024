@@ -1,0 +1,88 @@
+Wimpslot 256K
+
+Dir IDEFS::4.$.FS.flash.Source
+| Choose the destination directory 
+
+set out$dir  IDEFS::4.$.FS.flash.Library.
+|set out$dir  IDEFS::4.$.FS.Library.
+
+|RMEnsure 0.00 Tube6502Emulator RmLoad SCSI::Conner540.$.ArmLib.65Tube
+RMEnsure 0.00 Tube6502Emulator RmLoad IDEFS::4.$.ArmLib.65Tube 
+*EmulateTube
+CHAIN "SRLOAD"
+*SPOOL ^.TEXT.SRLOAD
+LIST
+*SPOOL
+
+CHAIN "ROMS"
+*SPOOL ^.TEXT.ROMS
+LIST
+*SPOOL
+
+CHAIN "INSERT"
+*SPOOL ^.TEXT.INSERT
+LIST
+*SPOOL
+
+CHAIN "UNPLUG"
+*SPOOL ^.TEXT.UNPLUG
+LIST
+*SPOOL
+
+CHAIN "SHOW"
+*SPOOL ^.TEXT.SHOW
+LIST
+*SPOOL
+
+CHAIN "CLEARAM"
+*SPOOL ^.TEXT.CLEARRAM
+LIST
+*SPOOL
+
+CHAIN "ROMSAVE"
+*SPOOL ^.TEXT.ROMSAVE
+LIST
+*SPOOL
+
+CHAIN "CLFLASH"
+*SPOOL ^.TEXT.CLFLASH
+LIST
+*SPOOL
+
+*quit
+*dir ^
+ssdtool -i imgfile 80 swflashram/ssd
+ssdtool -a imgfile Source.CLEARAM S.CLEARAM
+ssdtool -a imgfile Source.CLFLASH S.CLFLASH
+ssdtool -a imgfile Source.FLASH2  S.FLASH2
+ssdtool -a imgfile Source.Headerf S.Headerf
+ssdtool -a imgfile Source.INSERT  S.INSERT
+ssdtool -a imgfile Source.ROMS    S.ROMS
+ssdtool -a imgfile Source.ROMSAVE S.ROMSAVE
+ssdtool -a imgfile Source.SHOW    S.SHOW
+ssdtool -a imgfile Source.SRLOAD  S.SRLOAD
+ssdtool -a imgfile Source.UNPLUG  S.UNPLUG
+ssdtool -a imgfile Source.!Make   S.!Make
+
+ssdtool -a imgfile Library.CLEARAM L.CLEARAM
+ssdtool -a imgfile Library.CLFLASH L.CLFLASH
+ssdtool -a imgfile Library.INSERT  L.INSERT
+ssdtool -a imgfile Library.ROMS    L.ROMS
+ssdtool -a imgfile Library.ROMSAVE L.ROMSAVE
+ssdtool -a imgfile Library.SHOW    L.SHOW
+ssdtool -a imgfile Library.SRLOAD  L.SRLOAD
+ssdtool -a imgfile Library.UNPLUG  L.UNPLUG
+
+ssdtool -a imgfile Text.CLEARAM T.CLEARAM
+ssdtool -a imgfile Text.CLFLASH T.CLFLASH
+ssdtool -a imgfile Text.INSERT  T.INSERT
+ssdtool -a imgfile Text.ROMS    T.ROMS
+ssdtool -a imgfile Text.ROMSAVE T.ROMSAVE
+ssdtool -a imgfile Text.SHOW    T.SHOW
+ssdtool -a imgfile Text.SRLOAD  T.SRLOAD
+ssdtool -a imgfile Text.UNPLUG  T.UNPLUG
+
+ssdtool -a imgfile Notes
+
+| this would need *settype absolute on RISC OS to be usefull
+ssdtool -a imgfile ssdtool
